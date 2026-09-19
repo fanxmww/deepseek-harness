@@ -37,6 +37,14 @@ The host calls `bindContext`; it appends `patent/context-bound`, so the binding 
 | [`src/index.ts`](src/index.ts) | The `PatentCore` service, its `patentContext` projection, and `PatentError` |
 | [`src/types.ts`](src/types.ts) | Branded ids, domain records, and the one home of the patent session-event and projection-key declarations |
 
+## Model Experience
+
+Indirectly, through `@deepseek-ai/dsh-patent-tools`, which owns the model-facing schemas and results.
+
+#### KV Cache effect
+
+The service adds no request prefix of its own; the patent tools own any cache effect.
+
 ## Known Limitations and Deferred Work
 
 - **In-memory storage** — records do not persist across process restarts; the per-project SQLite store is deferred.

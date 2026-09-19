@@ -36,7 +36,37 @@ await ctx.plugin(PatentTools)
 | [`src/index.ts`](src/index.ts) | 工具注册、`tools/pre-execute` 模式策略,以及纯函数 `modeDecision` 规则 |
 | [`tests/patent-tools.spec.ts`](tests/patent-tools.spec.ts) | 全循环测试:mock 模型驱动真实工具;断言隔离、确认与模式限权 |
 
+## Model Experience
+
+### Tool definitions
+
+#### What the model sees
+
+模型看到上面列出的专利工具定义:`search_materials`、`create_fact_candidate`、`confirm_fact`、`list_confirmed_facts`、`build_feature`、`generate_claims`、`save_claim_version` 与 `run_quality_checks`,每个都只含任务相关参数。
+
+#### Token effect
+
+工具可见时每次请求的 schema 成本固定;对给定组装,其描述与参数是静态的。
+
+#### KV Cache effect
+
+只要定义与可见性不变,前缀保持稳定;插件生命周期或作用域限制可能使基于这些 schema 的复用失效。
+
+### Tool-call history and result
+
+#### What the model sees
+
+每个结果都很小且形状固定:范围内材料列表、候选或已确认事实 id、三套权利要求方案、已保存的权利要求版本 id,或风险清单。被拒调用返回稳定错误——`create_fact_candidate` 的 strict 模式拒绝、跨专利拒绝,或 `confirm_fact` 的需审批拒绝。
+
+#### Token effect
+
+结果大小随返回列表(材料、事实、权利要求方案、风险)增长;其余部分紧凑且形状固定。
+
+#### KV Cache effect
+
+仅追加;结果跟随可复用请求前缀,不会使既有 KV 缓存条目失效。
+
 ## Known Limitations and Deferred Work
 
 - **正向确认需要接好审批通道** — 通过循环时,`confirm_fact` 在没有 `ctx.approval` 时被拒绝;人工审批路径在测试中经由服务验证。
-- **PoC 工具集** — 特征树、权利要求生成、说明书、风险质检与导出工具暂缓。
+- **PoC 工具集** — 说明书生成、跨专利重叠分析与导出工具暂缓;权利要求生成是确定性的,而非模型撰写。

@@ -37,6 +37,14 @@ ctx.patentCore.bindContext(agent, { workspaceId, projectId: project.id, patentId
 | [`src/index.ts`](src/index.ts) | `PatentCore` 服务、其 `patentContext` 投影,以及 `PatentError` |
 | [`src/types.ts`](src/types.ts) | 品牌 id、领域记录,以及专利会话事件与投影键声明的唯一归属 |
 
+## Model Experience
+
+Indirectly, through `@deepseek-ai/dsh-patent-tools`, which owns the model-facing schemas and results.
+
+#### KV Cache effect
+
+服务自身不添加任何请求前缀;缓存效应由专利工具拥有。
+
 ## Known Limitations and Deferred Work
 
 - **内存存储** — 记录不跨进程重启存续;每项目 SQLite 存储暂缓。
