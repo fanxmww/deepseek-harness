@@ -261,6 +261,15 @@ importers:
       '@deepseek-ai/dsh-mcp-resources':
         specifier: workspace:^
         version: link:../../packages/mcp/mcp-resources
+      '@deepseek-ai/dsh-patent':
+        specifier: workspace:^
+        version: link:../../packages/bundle/patent
+      '@deepseek-ai/dsh-patent-core':
+        specifier: workspace:^
+        version: link:../../packages/patent/patent-core
+      '@deepseek-ai/dsh-patent-tools':
+        specifier: workspace:^
+        version: link:../../packages/patent/patent-tools
       '@deepseek-ai/dsh-persona':
         specifier: workspace:^
         version: link:../../packages/preset/persona
@@ -1933,6 +1942,25 @@ importers:
       '@deepseek-ai/dsh-session-query':
         specifier: workspace:^
         version: link:../../session-query/session-query
+
+  packages/bundle/patent:
+    dependencies:
+      '@deepseek-ai/dsh-patent-core':
+        specifier: workspace:^
+        version: link:../../patent/patent-core
+      '@deepseek-ai/dsh-patent-tools':
+        specifier: workspace:^
+        version: link:../../patent/patent-tools
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
 
   packages/bundle/sdk-app:
     dependencies:

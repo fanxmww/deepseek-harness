@@ -1,0 +1,14 @@
+# The dsh-patent bundle patch: mounts the patent business-truth service and the
+# model-facing patent tools over dsh-base. Stack it after dsh-base (and a runner
+# bundle such as dsh-headless or dsh-web-app) in a profile's bundle list; base
+# provides the session store, session projections, and tool registry these rows
+# depend on. Row order carries no load semantics (activation is
+# service-availability driven).
+
+- insert:
+    - id: patent-core
+      name: '@deepseek-ai/dsh-patent-core'
+
+    - id: patent-tools
+      name: '@deepseek-ai/dsh-patent-tools'
+      inject: [patentCore]
