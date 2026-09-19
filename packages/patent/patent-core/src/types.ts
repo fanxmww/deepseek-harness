@@ -20,6 +20,12 @@ export type PatentId = Branded<'PatentId'>
 export type MaterialId = Branded<'MaterialId'>
 /** Opaque id of a technical fact. */
 export type FactId = Branded<'FactId'>
+/** Opaque id of a technical feature. */
+export type FeatureId = Branded<'FeatureId'>
+/** Opaque id of a saved claim version. */
+export type ClaimVersionId = Branded<'ClaimVersionId'>
+/** Opaque id of a risk item raised by a quality check. */
+export type RiskId = Branded<'RiskId'>
 /** Opaque id of the human operator who confirms a fact. */
 export type OperatorId = Branded<'OperatorId'>
 
@@ -80,6 +86,76 @@ export interface TechnicalFact {
   readonly status: FactStatus
   /** The human operator who confirmed the fact, present only once confirmed. */
   readonly confirmedBy?: OperatorId
+}
+
+/** A technical feature abstracted from confirmed facts, optionally nested. */
+export interface TechnicalFeature {
+  /** Stable feature id. */
+  readonly id: FeatureId
+  /** Owning patent. */
+  readonly patentId: PatentId
+  /** The feature expression. */
+  readonly content: string
+  /** Parent feature id when this feature refines another, forming a tree. */
+  readonly parentId?: FeatureId
+}
+
+/**
+ * Which protection layer a generated claim plan targets: `broad` keeps only the
+ * core necessary feature, `balanced` adds a key relation (the default), and
+ * `robust` adds more differentiating features as a fallback after examination.
+ */
+export type ClaimPlanKind = 'broad' | 'balanced' | 'robust'
+
+/** One generated claim plan: an independent claim plus dependent claims. */
+export interface ClaimPlan {
+  /** Protection layer this plan targets. */
+  readonly kind: ClaimPlanKind
+  /** The independent claim text. */
+  readonly independentClaim: string
+  /** Dependent claim texts, each refining the independent claim. */
+  readonly dependentClaims: readonly string[]
+  /** The confirmed facts this plan draws on, in claim order. */
+  readonly usedFactIds: readonly FactId[]
+}
+
+/** The three claim plans produced for one patent. */
+export interface ClaimPlanSet {
+  /** Widest protection: core necessary feature only. */
+  readonly broad: ClaimPlan
+  /** Default recommendation: core feature plus a key relation. */
+  readonly balanced: ClaimPlan
+  /** Fallback after examination: more differentiating features. */
+  readonly robust: ClaimPlan
+}
+
+/** A saved, immutable snapshot of one claim plan. */
+export interface ClaimVersion {
+  /** Stable claim-version id. */
+  readonly id: ClaimVersionId
+  /** Owning patent. */
+  readonly patentId: PatentId
+  /** The saved claim plan. */
+  readonly plan: ClaimPlan
+  /** Wall-clock save time. */
+  readonly savedAt: number
+}
+
+/** Severity of a quality-check finding. */
+export type RiskLevel = 'critical' | 'warning' | 'advice'
+
+/** One finding from a quality check. */
+export interface RiskItem {
+  /** Stable risk id. */
+  readonly id: RiskId
+  /** Owning patent. */
+  readonly patentId: PatentId
+  /** Severity. */
+  readonly level: RiskLevel
+  /** The rule that produced this finding. */
+  readonly rule: string
+  /** Human-readable explanation. */
+  readonly message: string
 }
 
 /**
@@ -163,6 +239,16 @@ declare module '@deepseek-ai/dsh-session/types' {
     'patent/fact-confirmed': {
       factId: string
       confirmedBy: string
+    }
+    /**
+     * A claim plan was saved as an immutable version. Durable record so a UI
+     * and replay reconstruct the saved claim history.
+     * @param claimVersionId - the saved claim-version id.
+     * @param kind - which protection layer the saved plan targets.
+     */
+    'patent/claim-version-saved': {
+      claimVersionId: string
+      kind: ClaimPlanKind
     }
   }
 }

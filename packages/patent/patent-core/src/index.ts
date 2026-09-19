@@ -24,10 +24,16 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {
   BindContextInput,
+  ClaimPlan,
+  ClaimPlanKind,
+  ClaimPlanSet,
+  ClaimVersion,
+  ClaimVersionId,
   CreatePatentInput,
   CreateProjectInput,
   FactId,
   FactStatus,
+  FeatureId,
   ImportMaterialInput,
   Material,
   MaterialId,
@@ -38,7 +44,10 @@ import type {
   PatentMode,
   Project,
   ProjectId,
+  RiskId,
+  RiskItem,
   TechnicalFact,
+  TechnicalFeature,
   WorkspaceId,
 } from './types.ts'
 
@@ -62,6 +71,7 @@ export type PatentErrorCode =
   | 'FACT_NOT_FOUND'
   | 'CONTEXT_NOT_BOUND'
   | 'CROSS_PATENT_ACCESS'
+  | 'NO_CONFIRMED_FACTS'
 
 /** Error thrown at the patent-domain boundary. */
 export class PatentError extends Error {
@@ -114,6 +124,8 @@ export class PatentCore extends Service {
   private readonly patents = new Map<string, PatentCase>()
   private readonly materials = new Map<string, Material>()
   private readonly facts = new Map<string, TechnicalFact>()
+  private readonly features = new Map<string, TechnicalFeature>()
+  private readonly claimVersions = new Map<string, ClaimVersion>()
 
   /**
    * @param ctx - registrant context carrying the session-projection registry.
@@ -353,6 +365,139 @@ export class PatentCore extends Service {
     this.facts.set(confirmed.id, confirmed)
     session.append('patent/fact-confirmed', { factId, confirmedBy })
     return confirmed
+  }
+
+  /**
+   * Create a technical feature for the bound patent, optionally nested under a
+   * parent feature to build the feature tree.
+   * @param session - the calling session.
+   * @param content - the feature expression.
+   * @param parentId - optional parent feature id in the same patent.
+   * @returns the stored feature.
+   * @throws {@link PatentError} when the parent is unknown or outside the patent.
+   */
+  createFeature(session: Session, content: string, parentId?: string): TechnicalFeature {
+    const context = this.requireContext(session)
+    if (parentId !== undefined) {
+      const parent = this.features.get(parentId)
+      if (parent === undefined || parent.patentId !== context.patentId) {
+        throw new PatentError(`parent feature "${parentId}" not found in this patent`, 'FACT_NOT_FOUND')
+      }
+    }
+    const feature: TechnicalFeature = {
+      id: brandString<FeatureId>(`FEAT-${randomUUID()}`),
+      patentId: context.patentId,
+      content,
+      ...parentId === undefined ? {} : { parentId: brandString<FeatureId>(parentId) },
+    }
+    this.features.set(feature.id, feature)
+    return feature
+  }
+
+  /**
+   * List the features of the bound patent in creation order.
+   * @param session - the calling session.
+   * @returns the patent's features.
+   */
+  listFeatures(session: Session): TechnicalFeature[] {
+    const context = this.requireContext(session)
+    return [...this.features.values()].filter(feature => feature.patentId === context.patentId)
+  }
+
+  /**
+   * Generate the broad, balanced, and robust claim plans from the bound
+   * patent's confirmed facts. Deterministic: the first confirmed fact anchors
+   * the independent claim, and later facts become dependent claims by layer.
+   * @param session - the calling session.
+   * @returns the three claim plans.
+   * @throws {@link PatentError} `NO_CONFIRMED_FACTS` when no confirmed fact exists.
+   */
+  generateClaimCandidates(session: Session): ClaimPlanSet {
+    const [anchor, ...rest] = this.listFacts(session, { status: 'confirmed' })
+    if (anchor === undefined) {
+      throw new PatentError('no confirmed facts to generate claims from', 'NO_CONFIRMED_FACTS')
+    }
+    const independent = `A method comprising: ${anchor.content}.`
+    const dependents = rest.map((fact, index) =>
+      `The method of claim 1, wherein ${fact.content} (claim ${index + 2}).`)
+    const buildPlan = (kind: ClaimPlanKind, dependentCount: number): ClaimPlan => ({
+      kind,
+      independentClaim: independent,
+      dependentClaims: dependents.slice(0, dependentCount),
+      usedFactIds: [anchor.id, ...rest.slice(0, dependentCount).map(fact => fact.id)],
+    })
+    return {
+      broad: buildPlan('broad', 0),
+      balanced: buildPlan('balanced', Math.min(1, dependents.length)),
+      robust: buildPlan('robust', dependents.length),
+    }
+  }
+
+  /**
+   * Save a claim plan as an immutable version, appending
+   * `patent/claim-version-saved`.
+   * @param session - the calling session.
+   * @param plan - the claim plan to save.
+   * @returns the stored claim version.
+   */
+  saveClaimVersion(session: Session, plan: ClaimPlan): ClaimVersion {
+    const context = this.requireContext(session)
+    const version: ClaimVersion = {
+      id: brandString<ClaimVersionId>(`CLV-${randomUUID()}`),
+      patentId: context.patentId,
+      plan,
+      savedAt: Date.now(),
+    }
+    this.claimVersions.set(version.id, version)
+    session.append('patent/claim-version-saved', { claimVersionId: version.id, kind: plan.kind })
+    return version
+  }
+
+  /**
+   * List the saved claim versions of the bound patent in save order.
+   * @param session - the calling session.
+   * @returns the patent's claim versions.
+   */
+  listClaimVersions(session: Session): ClaimVersion[] {
+    const context = this.requireContext(session)
+    return [...this.claimVersions.values()].filter(version => version.patentId === context.patentId)
+  }
+
+  /**
+   * Run the basic quality checks over the bound patent and return the findings.
+   * The rules cover fact support, saved-version presence, and claim-source
+   * support; each finding names the rule that raised it.
+   * @param session - the calling session.
+   * @returns the risk findings, most severe first.
+   */
+  runChecks(session: Session): RiskItem[] {
+    const context = this.requireContext(session)
+    const confirmed = this.listFacts(session, { status: 'confirmed' })
+    const versions = this.listClaimVersions(session)
+    const confirmedIds = new Set(confirmed.map(fact => fact.id))
+    const risks: RiskItem[] = []
+    const raise = (level: RiskItem['level'], rule: string, message: string): void => {
+      risks.push({ id: brandString<RiskId>(`RISK-${randomUUID()}`), patentId: context.patentId, level, rule, message })
+    }
+    if (confirmed.length === 0) {
+      raise('critical', 'fact-support', 'no confirmed facts support any claim')
+    }
+    for (const version of versions) {
+      for (const factId of version.plan.usedFactIds) {
+        if (!confirmedIds.has(factId)) {
+          raise('warning', 'claim-source-support',
+            `claim version ${version.id} uses fact ${factId} that is no longer confirmed`)
+        }
+      }
+      if (version.plan.independentClaim.trim().length === 0) {
+        raise('critical', 'independent-claim', `claim version ${version.id} has an empty independent claim`)
+      }
+    }
+    if (versions.length === 0) {
+      raise('advice', 'saved-version', 'no claim version has been saved yet')
+    }
+    const order: Record<RiskItem['level'], number> = { critical: 0, warning: 1, advice: 2 }
+    return risks.sort((a, b) => order[a.level] - order[b.level])
   }
 }
 

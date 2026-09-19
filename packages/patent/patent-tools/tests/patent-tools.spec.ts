@@ -177,4 +177,50 @@ describe('patent tools through the agent loop', () => {
     expect(ctx.patentCore.listFacts(agent.session, { status: 'confirmed' })).toHaveLength(1)
     expect(agent.session.snapshotEvents().some(e => e.type === 'patent/fact-confirmed')).toBe(true)
   })
+
+  it('claims and checks: the model generates plans, saves a version, and runs quality checks', async () => {
+    const ctx = await harness(new MockAdapter([
+      toolCallResponse('c1', 'generate_claims', {}),
+      toolCallResponse('c2', 'save_claim_version', { kind: 'balanced' }),
+      toolCallResponse('c3', 'run_quality_checks', {}),
+      textResponse('done'),
+    ]))
+    const { a } = seedTwoPatents(ctx)
+    const agent = await ctx.agentLoop.create(SessionId('it-claims'), { provider: 'mock', model: 'mock' })
+    bind(ctx, agent, a, 'strict')
+    // Two human-confirmed facts anchor an independent claim plus one dependent.
+    const f1 = ctx.patentCore.createFactCandidate(agent.session, 'dynamic weight adjustment on device fault')
+    const f2 = ctx.patentCore.createFactCandidate(agent.session, 'threshold triggers reweighting')
+    ctx.patentCore.confirmFact(agent.session, f1.id, brandString<OperatorId>('USER-1'))
+    ctx.patentCore.confirmFact(agent.session, f2.id, brandString<OperatorId>('USER-1'))
+
+    await runOnce(ctx, agent, 'draft and check claims')
+    const outcomes = toolOutcomes(agent.session.snapshotEvents())
+    expect(outcomeAt(outcomes, 0).text).toContain('Generated 3 claim plans')
+    expect(outcomeAt(outcomes, 1).isError).toBe(false)
+    expect(outcomeAt(outcomes, 1).text.toLowerCase()).toContain('balanced')
+    expect(outcomeAt(outcomes, 2).isError).toBe(false)
+    expect(agent.session.snapshotEvents().some(e => e.type === 'patent/claim-version-saved')).toBe(true)
+  })
+
+  it('claim generation is deterministic and quality checks flag missing facts', async () => {
+    const ctx = await harness(new MockAdapter([]))
+    const { a } = seedTwoPatents(ctx)
+    const agent = await ctx.agentLoop.create(SessionId('it-core-claims'), { provider: 'mock', model: 'mock' })
+    bind(ctx, agent, a, 'suggest')
+
+    // With no confirmed facts, checks report a critical fact-support finding.
+    const before = ctx.patentCore.runChecks(agent.session)
+    expect(before.some(risk => risk.level === 'critical' && risk.rule === 'fact-support')).toBe(true)
+
+    const c1 = ctx.patentCore.createFactCandidate(agent.session, 'anchor feature')
+    const c2 = ctx.patentCore.createFactCandidate(agent.session, 'refinement feature')
+    ctx.patentCore.confirmFact(agent.session, c1.id, brandString<OperatorId>('USER-1'))
+    ctx.patentCore.confirmFact(agent.session, c2.id, brandString<OperatorId>('USER-1'))
+    const plans = ctx.patentCore.generateClaimCandidates(agent.session)
+    expect(plans.broad.dependentClaims).toHaveLength(0)
+    expect(plans.balanced.dependentClaims).toHaveLength(1)
+    expect(plans.robust.dependentClaims).toHaveLength(1)
+    expect(plans.balanced.independentClaim).toContain('anchor feature')
+  })
 })
