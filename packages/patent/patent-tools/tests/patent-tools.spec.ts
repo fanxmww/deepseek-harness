@@ -62,13 +62,19 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   })
 }
 
+/** One tool result's outcome and rendered text. */
+interface ToolOutcome {
+  isError: boolean
+  text: string
+}
+
 /** Extract the outcome and rendered text of each tool result in call order. */
-function toolOutcomes(log: readonly SessionEvent[]): { isError: boolean; text: string }[] {
-  const outcomes: { isError: boolean; text: string }[] = []
+function toolOutcomes(log: readonly SessionEvent[]): ToolOutcome[] {
+  const outcomes: ToolOutcome[] = []
   for (const event of log) {
     if (event.type !== 'tool/result') continue
     const block = event.data.message.content[0]
-    if (block.type !== 'tool-result') continue
+    if (block === undefined || block.type !== 'tool-result') continue
     const inner = block.content[0]
     outcomes.push({
       isError: block.isError === true,
@@ -76,6 +82,13 @@ function toolOutcomes(log: readonly SessionEvent[]): { isError: boolean; text: s
     })
   }
   return outcomes
+}
+
+/** Resolve one required tool outcome, failing the test when it is absent. */
+function outcomeAt(outcomes: readonly ToolOutcome[], index: number): ToolOutcome {
+  const outcome = outcomes[index]
+  if (outcome === undefined) throw new Error(`expected a tool outcome at index ${index}`)
+  return outcome
 }
 
 async function runOnce(ctx: Context, agent: Agent, prompt: string): Promise<void> {
@@ -98,10 +111,10 @@ describe('patent tools through the agent loop', () => {
     await runOnce(ctx, agent, 'search then cross')
     const outcomes = toolOutcomes(agent.session.snapshotEvents())
     expect(outcomes).toHaveLength(2)
-    expect(outcomes[0].isError).toBe(false)
-    expect(outcomes[0].text).toContain('2 material(s) matched')
-    expect(outcomes[1].isError).toBe(true)
-    expect(outcomes[1].text.toLowerCase()).toContain('cross-patent')
+    expect(outcomeAt(outcomes, 0).isError).toBe(false)
+    expect(outcomeAt(outcomes, 0).text).toContain('2 material(s) matched')
+    expect(outcomeAt(outcomes, 1).isError).toBe(true)
+    expect(outcomeAt(outcomes, 1).text.toLowerCase()).toContain('cross-patent')
   })
 
   it('human confirmation: an agent calling confirm_fact is denied because approval is required', async () => {
@@ -117,9 +130,9 @@ describe('patent tools through the agent loop', () => {
 
     await runOnce(ctx, agent, 'record then confirm')
     const outcomes = toolOutcomes(agent.session.snapshotEvents())
-    expect(outcomes[0].isError).toBe(false)
-    expect(outcomes[1].isError).toBe(true)
-    expect(outcomes[1].text.toLowerCase()).toContain('approval')
+    expect(outcomeAt(outcomes, 0).isError).toBe(false)
+    expect(outcomeAt(outcomes, 1).isError).toBe(true)
+    expect(outcomeAt(outcomes, 1).text.toLowerCase()).toContain('approval')
     expect(agent.session.snapshotEvents().some(e => e.type === 'patent/fact-confirmed')).toBe(false)
   })
 
@@ -134,8 +147,8 @@ describe('patent tools through the agent loop', () => {
 
     await runOnce(ctx, agent, 'try to add a fact in strict mode')
     const outcomes = toolOutcomes(agent.session.snapshotEvents())
-    expect(outcomes[0].isError).toBe(true)
-    expect(outcomes[0].text.toLowerCase()).toContain('strict mode')
+    expect(outcomeAt(outcomes, 0).isError).toBe(true)
+    expect(outcomeAt(outcomes, 0).text.toLowerCase()).toContain('strict mode')
   })
 
   it('mode policy: suggest mode allows create_fact_candidate', async () => {
@@ -149,7 +162,7 @@ describe('patent tools through the agent loop', () => {
 
     await runOnce(ctx, agent, 'add a fact in suggest mode')
     const outcomes = toolOutcomes(agent.session.snapshotEvents())
-    expect(outcomes[0].isError).toBe(false)
+    expect(outcomeAt(outcomes, 0).isError).toBe(false)
   })
 
   it('confirmation path: a human confirmation records the fact and appends patent/fact-confirmed', async () => {
