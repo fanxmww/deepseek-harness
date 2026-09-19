@@ -32,6 +32,7 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 | [`api/`](api/README.zh.md) | Remote BFF 装配与 Typert RPC 网关 |
 | [`typert/`](typert/README.zh.md) | 类型图生成、产物加载与运行时注册表 |
 | [`goal/`](goal/README.zh.md) | 同会话 goal 的持久化与生命周期 |
+| [`patent/`](patent/README.zh.md) | 专利智能体 PoC：业务真相服务、模型可见工具、模式策略与多专利隔离 |
 | [`schedule/`](schedule/README.zh.md) | 仅限会话内的定时后续操作 |
 | [`feedback/`](feedback/README.zh.md) | 人类反馈的采集与命令 |
 | [`identity/`](identity/README.zh.md) | 共享匿名身份 |
